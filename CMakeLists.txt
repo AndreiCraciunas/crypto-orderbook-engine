@@ -45,13 +45,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(simdjson)
 
-# Fetch websocketpp
+# Fetch websocketpp (header-only, skip its CMakeLists.txt)
 FetchContent_Declare(
     websocketpp
     GIT_REPOSITORY https://github.com/zaphoyd/websocketpp.git
     GIT_TAG 0.8.2
 )
-FetchContent_MakeAvailable(websocketpp)
+FetchContent_GetProperties(websocketpp)
+if(NOT websocketpp_POPULATED)
+    FetchContent_Populate(websocketpp)
+    # Don't add subdirectory to avoid websocketpp's CMakeLists.txt
+endif()
 
 # Fetch spdlog
 FetchContent_Declare(
