@@ -1,0 +1,212 @@
+/**
+ * @file types.hpp
+ * @brief Core data types and structures for the market data handler
+ *
+ * This file defines the fundamental data structures used throughout the
+ * order book engine, including exchange identifiers, price levels, snapshots,
+ * and utility functions for fixed-point arithmetic.
+ */
+
+#pragma once
+
+#include <cstdint>
+#include <atomic>
+#include <string>
+#include <vector>
+#include <optional>
+
+namespace marketdata {
+
+/**
+ * @brief Exchange identifier enumeration
+ *
+ * Identifies which cryptocurrency exchange a particular order or
+ * order book update originated from.
+ */
+enum class Exchange : uint8_t {
+    UNKNOWN = 0,   ///< Unknown or unspecified exchange
+    BINANCE = 1,   ///< Binance exchange
+    COINBASE = 2,  ///< Coinbase exchange
+    KRAKEN = 3     ///< Kraken exchange
+};
+
+/**
+ * @brief Order side enumeration
+ *
+ * Specifies whether an order is on the bid (buy) or ask (sell) side
+ * of the order book.
+ */
+enum class Side : uint8_t {
+    BID = 0,  ///< Bid (buy) side
+    ASK = 1   ///< Ask (sell) side
+};
+
+/**
+ * @brief Convert exchange enum to string representation
+ *
+ * @param exchange Exchange identifier to convert
+ * @return const char* String name of the exchange
+ *
+ * @code
+ * Exchange ex = Exchange::BINANCE;
+ * const char* name = exchange_to_string(ex);  // Returns "BINANCE"
+ * @endcode
+ */
+inline const char* exchange_to_string(Exchange exchange) {
+    switch (exchange) {
+        case Exchange::BINANCE: return "BINANCE";
+        case Exchange::COINBASE: return "COINBASE";
+        case Exchange::KRAKEN: return "KRAKEN";
+        default: return "UNKNOWN";
+    }
+}
+
+/**
+ * @brief Atomic price level structure with cache-line alignment
+ *
+ * Represents a single price level in the order book. All fields are
+ * atomic to allow lock-free concurrent access. The structure is aligned
+ * to a cache line (64 bytes) to prevent false sharing between CPU cores.
+ *
+ * @note This structure uses fixed-point arithmetic internally. Use
+ *       double_to_fixed() and fixed_to_double() for conversions.
+ */
+struct alignas(64) PriceLevel {
+    std::atomic<uint64_t> price;       ///< Price in fixed-point format (8 decimals)
+    std::atomic<uint64_t> quantity;    ///< Total quantity at this price level
+    std::atomic<uint32_t> order_count; ///< Number of individual orders
+    std::atomic<uint64_t> timestamp;   ///< Last update timestamp (nanoseconds since epoch)
+
+    /// Default constructor initializing all fields to zero
+    PriceLevel()
+        : price(0)
+        , quantity(0)
+        , order_count(0)
+        , timestamp(0) {}
+
+    /**
+     * @brief Parameterized constructor for non-atomic initialization
+     *
+     * @param p Price value
+     * @param q Quantity value
+     * @param oc Order count (default: 0)
+     * @param ts Timestamp (default: 0)
+     */
+    PriceLevel(uint64_t p, uint64_t q, uint32_t oc = 0, uint64_t ts = 0)
+        : price(p)
+        , quantity(q)
+        , order_count(oc)
+        , timestamp(ts) {}
+};
+
+/**
+ * @brief Non-atomic price level for snapshots
+ *
+ * A simplified price level structure without atomic operations,
+ * used for order book snapshots and read-only operations. Uses
+ * double-precision floating point for easier consumption.
+ */
+struct PriceLevelSnapshot {
+    double price;          ///< Price as double-precision float
+    double quantity;       ///< Quantity as double-precision float
+    uint32_t order_count;  ///< Number of orders at this level
+
+    /// Default constructor
+    PriceLevelSnapshot()
+        : price(0.0)
+        , quantity(0.0)
+        , order_count(0) {}
+
+    /**
+     * @brief Parameterized constructor
+     *
+     * @param p Price value
+     * @param q Quantity value
+     * @param oc Order count (default: 0)
+     */
+    PriceLevelSnapshot(double p, double q, uint32_t oc = 0)
+        : price(p)
+        , quantity(q)
+        , order_count(oc) {}
+};
+
+/**
+ * @brief Order book statistics
+ *
+ * Contains calculated statistics about the current state of an order book,
+ * including spread, mid-price, and volume imbalance.
+ */
+struct OrderBookStatistics {
+    double spread;              ///< Bid-ask spread (best_ask - best_bid)
+    double mid_price;           ///< Mid price ((best_bid + best_ask) / 2)
+    double book_imbalance;      ///< Volume imbalance: (bid_vol - ask_vol) / (bid_vol + ask_vol)
+    uint64_t total_bid_volume;  ///< Total volume on bid side (fixed-point)
+    uint64_t total_ask_volume;  ///< Total volume on ask side (fixed-point)
+    uint32_t bid_depth;         ///< Number of bid price levels
+    uint32_t ask_depth;         ///< Number of ask price levels
+    uint64_t timestamp;         ///< Timestamp when statistics were calculated (nanoseconds)
+
+    /// Default constructor initializing all fields to zero
+    OrderBookStatistics()
+        : spread(0.0)
+        , mid_price(0.0)
+        , book_imbalance(0.0)
+        , total_bid_volume(0)
+        , total_ask_volume(0)
+        , bid_depth(0)
+        , ask_depth(0)
+        , timestamp(0) {}
+};
+
+/**
+ * @brief Fixed-point conversion scale factor
+ *
+ * All prices are stored internally as 64-bit integers with 8 decimal places
+ * of precision. This constant defines the scaling factor (10^8 = 100,000,000).
+ *
+ * @example
+ * Price of $123.456789 is stored as 12345678900
+ */
+constexpr uint64_t PRICE_SCALE = 100000000ULL;
+
+/**
+ * @brief Convert double to fixed-point representation
+ *
+ * Converts a floating-point price to a 64-bit integer with 8 decimal
+ * places of precision. This allows for exact arithmetic without
+ * floating-point rounding errors.
+ *
+ * @param value Double-precision price value
+ * @return uint64_t Fixed-point representation
+ *
+ * @code
+ * double price = 123.456789;
+ * uint64_t fixed = double_to_fixed(price);  // 12345678900
+ * @endcode
+ *
+ * @note Values are truncated, not rounded
+ * @warning Negative values are not supported
+ */
+inline uint64_t double_to_fixed(double value) {
+    return static_cast<uint64_t>(value * PRICE_SCALE);
+}
+
+/**
+ * @brief Convert fixed-point to double representation
+ *
+ * Converts a 64-bit fixed-point integer back to a double-precision
+ * floating-point number.
+ *
+ * @param value Fixed-point representation
+ * @return double Double-precision price value
+ *
+ * @code
+ * uint64_t fixed = 12345678900;
+ * double price = fixed_to_double(fixed);  // 123.456789
+ * @endcode
+ */
+inline double fixed_to_double(uint64_t value) {
+    return static_cast<double>(value) / PRICE_SCALE;
+}
+
+} // namespace marketdata
