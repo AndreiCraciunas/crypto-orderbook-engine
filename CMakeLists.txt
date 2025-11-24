@@ -1,4 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Allow dependencies to use older CMake minimum required versions
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
+
 project(MarketDataHandler VERSION 1.0.0 LANGUAGES CXX)
 
 # C++ Standard
@@ -66,11 +72,16 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(spdlog)
 
 # Fetch yaml-cpp for config
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "Minimum CMake policy version")
 FetchContent_Declare(
     yaml-cpp
     GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
     GIT_TAG 0.8.0
 )
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yaml-cpp)
 
 # Fetch Google Test
